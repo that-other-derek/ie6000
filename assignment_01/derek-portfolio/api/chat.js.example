@@ -1,0 +1,188 @@
+/**
+ * Optional serverless LLM proxy for the portfolio AI agent.
+ *
+ * RENAME THIS FILE to `chat.js` (drop the .example suffix) to activate it on
+ * Vercel, then:
+ *   1. Set  agent: { mode: "api", endpoint: "/api/chat" }  in assets/js/data.js
+ *   2. Add OPENAI_API_KEY (and optionally OPENAI_MODEL) in
+ *      Vercel → Project → Settings → Environment Variables
+ *
+ * The client already sends a fully-built `messages` array (system prompt +
+ * conversation), so this function stays dumb on purpose: it forwards the
+ * request and relays the stream straight back to the browser.
+ */
+
+export const config = { runtime: "edge" };
+
+const ALLOWED_ORIGINS = [
+  "http://localhost:3000",
+  "http://localhost:5000",
+  "http://127.0.0.1:3000",
+  // "https://your-domain.com",
+];
+
+function corsHeaders(origin) {
+  const ok =
+    !origin ||
+    ALLOWED_ORIGINS.includes(origin) ||
+    origin.endsWith(".vercel.app");
+
+  return {
+    "Access-Control-Allow-Origin": ok ? origin || "*" : "null",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    Vary: "Origin",
+  };
+}
+
+/** Very small in-memory limiter. Per-instance only; good enough to stop casual abuse. */
+const hits = new Map();
+function rateLimited(ip, limit = 20, windowMs = 60_000) {
+  const now = Date.now();
+  const entry = hits.get(ip) || { count: 0, reset: now + windowMs };
+  if (now > entry.reset) {
+    entry.count = 0;
+    entry.reset = now + windowMs;
+  }
+  entry.count += 1;
+  hits.set(ip, entry);
+  return entry.count > limit;
+}
+
+export default async function handler(request) {
+  const origin = request.headers.get("origin") || "";
+  const headers = corsHeaders(origin);
+
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers });
+  }
+  if (request.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+  }
+
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  if (rateLimited(ip)) {
+    return new Response(
+      JSON.stringify({ error: "Too many requests — please slow down." }),
+      { status: 429, headers: { ...headers, "Content-Type": "application/json" } },
+    );
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: "Server is missing OPENAI_API_KEY." }), {
+      status: 500,
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+  }
+
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body." }), {
+      status: 400,
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+  }
+
+  const messages = Array.isArray(payload?.messages) ? payload.messages.slice(-24) : null;
+  if (!messages?.length) {
+    return new Response(JSON.stringify({ error: "`messages` array is required." }), {
+      status: 400,
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+  }
+
+  // Hard cap so a long conversation can't run away with your budget.
+  const totalChars = messages.reduce((n, m) => n + String(m.content || "").length, 0);
+  if (totalChars > 24_000) {
+    return new Response(JSON.stringify({ error: "Conversation too long — reset the chat." }), {
+      status: 413,
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+  }
+
+  const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL || payload.model || "gpt-4o-mini",
+      messages,
+      stream: true,
+      temperature: 0.4,
+      max_tokens: 400,
+    }),
+  });
+
+  if (!upstream.ok || !upstream.body) {
+    const detail = await upstream.text().catch(() => "");
+    console.error("[api/chat] upstream error", upstream.status, detail);
+    return new Response(JSON.stringify({ error: "Upstream model request failed." }), {
+      status: 502,
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+  }
+
+  /* Re-emit OpenAI's SSE as our own minimal `data: {"delta":"…"}` stream.
+     agent.js understands this format, plus plain text and `{ reply }` JSON. */
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const reader = upstream.body.getReader();
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const data = trimmed.slice(5).trim();
+            if (data === "[DONE]") {
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+              return;
+            }
+            try {
+              const delta = JSON.parse(data)?.choices?.[0]?.delta?.content;
+              if (delta) {
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ delta })}\n\n`),
+                );
+              }
+            } catch {
+              /* ignore malformed keep-alive chunks */
+            }
+          }
+        }
+      } catch (err) {
+        console.error("[api/chat] stream error", err);
+      } finally {
+        try { controller.close(); } catch { /* already closed */ }
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...headers,
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
+  });
+}
