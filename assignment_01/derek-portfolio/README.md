@@ -36,9 +36,11 @@ npx serve .
 | **Layout** | Sticky glass nav that hides on scroll-down, animated active-link pill, mobile drawer with circular clip-path reveal, scroll progress bar |
 | **Hero** | Animated aurora blobs, masked grid, typewriter role rotation, count-up stats, 3D-tilt card with cursor-tracked border glow, magnetic buttons |
 | **Navigation** | Smooth scroll, scroll-spy, `⌘/Ctrl + K` command palette, back-to-top |
-| **Sections** | `#about` · `#experience` (timeline, education, certifications, volunteering) · `#work` · `#skills` · `#praise` · `#contact` — backgrounds alternate, eyebrows are numbered 01–06 |
+| **Sections** | `#about` · `#experience` (timeline, education, certifications, volunteering) · `#work` · `#journal` (IntelliMake Journal) · `#skills` · `#praise` · `#contact` — backgrounds alternate, eyebrows are numbered 01–07 |
 | **Motion** | `IntersectionObserver` reveals with stagger, cursor spotlight, hover physics — all disabled under `prefers-reduced-motion` |
-| **AI agent** | Floating launcher + chat panel, streamed typewriter answers, suggestion chips, offline by default |
+| **Photography** | The gallery shot and the headshot cut-out as tritone-mapped background plates across Hero, About, IntelliMake Journal and Contact — the hero and Contact framed on the face, full-bleed on the dark theme and an indigo wash on the light one |
+| **Contact** | Validated form that opens the message in a webmail service of the visitor's choosing (Gmail, Outlook, Yahoo, Proton, copy) — never `mailto:`, so no desktop mail client is required |
+| **AI agent** | Floating launcher + chat panel, streamed typewriter answers, suggestion chips, offline by default — keyword knowledge base with alias expansion, stemming and typo tolerance, and a scoped answer when a question misses instead of a flat refusal |
 | **Theming** | Dark/light with `prefers-color-scheme` default and `localStorage` persistence |
 | **A11y** | Skip link, focus-visible rings, ARIA roles on the agent log / carousel / palette, keyboard-operable throughout, print stylesheet |
 
@@ -108,6 +110,35 @@ endorsements: { skill, count }                       // verbatim LinkedIn counts
 
 ---
 
+## The photography
+
+Two images in `assets/img/` are used as colour-toned background plates rather
+than as pictures:
+
+| Image | Hero | About | IntelliMake Journal | Contact |
+|---|---|---|---|---|
+| `gallery.webp` | your face, beside the glass stats card | | the museum ceiling, as a band along the top | |
+| `headshot.webp` | | portrait above the highlight cards | | behind the panel's heading column |
+
+Each plate runs through a **tritone ramp** — an inline SVG filter in
+`index.html` that remaps the photograph's luminance onto the brand gradient, so
+indigo shadows run through violet and blue into teal highlights. It's an SVG
+filter rather than the usual `grayscale() + sepia()` (which can only produce
+one hue pair and crushes skin tones) or a gradient overlay (which has no alpha,
+and would therefore paint a rectangle behind the headshot cut-out).
+
+Dark and light themes get opposite ramps and opposite blend modes, because a
+treatment that makes a photo glow out of a black page erases it on a white one.
+The hero plate also tracks the cursor by a few pixels, which is what makes it
+read as a layer behind the glass card rather than as wallpaper.
+
+**All the tuning knobs, and how to swap the artwork,** are documented in
+[`assets/img/README.md`](assets/img/README.md). The short version: change
+`--plate-opacity`, `--plate-pos` or `--plate-bright` on the relevant
+`.garnish--*` rule in `styles.css`.
+
+---
+
 ## The AI agent
 
 Configured under `PROFILE.agent` in `data.js`.
@@ -150,7 +181,12 @@ Then expose an endpoint that:
 
 The client handles both, plus a non-streaming `{ reply: "…" }` JSON response.
 The agent auto-injects a system prompt built from your profile data, which keeps
-the model from inventing employers or metrics.
+the model from inventing employers or metrics. That digest
+(`profileDigest()` in `agent.js`) carries the *whole* profile — experience,
+education, certifications, the IntelliMake Journal entries, volunteering,
+testimonials — and
+ends with the local knowledge base's own answers, so the two modes can't
+disagree about a fact.
 
 Copy `api/chat.js.example` → `api/chat.js` for a working Vercel Function
 scaffold, then set `OPENAI_API_KEY` in your Vercel project settings.
@@ -158,15 +194,87 @@ scaffold, then set `OPENAI_API_KEY` in your Vercel project settings.
 > **Never** put an API key in `assets/js/`. Anything in the browser is public.
 > The serverless proxy exists precisely to keep it server-side.
 
+### Teaching it new things
+
+The local mode is a keyword-scored knowledge base, and it's worth knowing how it
+reads a question, because that's what decides whether an answer lands.
+
+Each entry looks like this:
+
+```js
+{
+  id: "study",
+  label: "What he's studying at Wayne State",   // shown when a question misses
+  sample: "What's he studying at Wayne State?", // offered as a follow-up
+  keywords: ["wayne state", "wsu", "masters", "capstone", "intellimake", …],
+  also: ["does he go to university"],           // lower-weighted, looser matches
+  answer: ({ education, journal }) => `…`,
+}
+```
+
+Three things happen to the visitor's question before it's scored:
+
+1. **Normalisation** — lowercased, fancy dashes and quotes unified, punctuation
+   that carries no meaning dropped.
+2. **Alias expansion** (`agent.aliases`) — `[what they typed, extra terms to also
+   search for]`. This is what makes "what does Derek do at WSU" work: the
+   knowledge base says "Wayne State University" and the visitor said "WSU", so
+   the alias supplies the missing terms. Keep entries targeted; a broad alias
+   makes several entries match at once and the wrong one can win.
+3. **Stemming** — `studying`, `study` and `studied` collapse to one token, so a
+   single keyword catches every phrasing.
+
+A one-edit typo is forgiven against the knowledge base's own vocabulary
+("wayn state", "intellmake"). When nothing matches well, the agent says so once
+and then lists what it *can* cover, generated from the `label`s — and when
+several entries run close together it offers them as a menu rather than
+guessing. Both beats are the difference between narrow and dim.
+
+**If a question that should work doesn't**, the fix is almost always a keyword
+or an alias, not a prompt. Add the term the visitor actually types.
+
 ---
 
 ## Wiring the contact form
 
-Out of the box the form validates client-side and hands off to the visitor's
-mail client via `mailto:`. That's the zero-infrastructure option.
+Out of the box the form validates client-side and then hands the finished
+message to a **webmail compose link**, which the visitor picks from a chooser.
+Capturing submissions needs a provider; until you add one, this is the
+zero-infrastructure option that actually works.
 
-To capture submissions instead, replace the `setTimeout(...)` block in
-`initContact()` (`assets/js/main.js`) with a `fetch` to your provider:
+### Why not `mailto:`
+
+`mailto:` is the obvious choice on a static site and it's the wrong one. It only
+works when a desktop mail client is configured. On a machine without one — or
+with webmail only, which is most people now — Windows intercepts the protocol
+and offers the app store instead of a composer, so the message is never sent and
+the visitor sees a shop. That is the exact failure this avoids.
+
+Instead the visitor picks the service they use and `initMailer()`
+(`assets/js/main.js`) builds that service's own compose URL, with the whole
+message in the query string. Nothing is sent until they press send over there,
+and no mail client is involved at any point. The provider list is one array:
+
+```js
+const MAIL_PROVIDERS = [
+  { id: "gmail",   label: "Gmail",   url: ({ to, subject, body }) => `https://mail.google.com/mail/?view=cm&fs=1&…` },
+  { id: "outlook", label: "Outlook / Microsoft 365", url: … },
+  // + Outlook.com, Yahoo, Proton, "Copy the message", "Use my default mail app"
+];
+```
+
+Add or change a service by editing that array — it also feeds the chooser's
+buttons. The last real service a visitor used is remembered in
+`localStorage["pf-mailer"]` and marked "Last used" next time. `mailto:` is still
+there as an explicit *choice* ("Use my default mail app"), so a visitor with a
+client can deliberately use it — but nobody is pushed into the OS prompt.
+
+Every `mailto:` link on the page is intercepted and routed through the same
+chooser, so the address in the contact list, the footer icons and the agent's
+replies don't fall back into the same trap.
+
+To capture submissions instead, replace the `mailer.open(...)` call in
+`initContact()` with a `fetch` to your provider:
 
 ```js
 await fetch("https://formspree.io/f/YOUR_ID", {
@@ -207,8 +315,12 @@ search indexing both depend on those.
 
 - One CSS file, three small JS files, no libraries — nothing to download but
   your content and the Google Fonts stylesheet.
+- The two photographs (~180 KB together) are fetched lazily by
+  `IntersectionObserver` as their section approaches the viewport, on a
+  400 px margin, and skipped entirely when the browser reports `Save-Data`.
 - Animations are limited to `transform` and `opacity` so they stay on the
-  compositor.
+  compositor. The hero plate's cursor parallax is transform-only, driven by a
+  `requestAnimationFrame` gate, and disabled for coarse pointers.
 - `IntersectionObserver` reveals unobserve themselves after firing.
 - All motion collapses under `prefers-reduced-motion: reduce`.
 
@@ -240,6 +352,37 @@ The other knobs live in the same place:
 > trackpad, per-frame deltas are 1–3px — comparing frame-to-frame leaves a dead
 > zone where slow scrolling neither hides nor reveals the header, and it feels
 > stuck. Don't "simplify" this back to a frame delta.
+
+### Anchor jumps hold the header open
+
+Auto-hide is suppressed for the whole duration of a programmatic scroll (a nav
+link, a palette result, back-to-top) so the header can't vanish mid-flight.
+
+The hold is released when **scrolling stops**, not after a fixed timeout: a
+debounced 160 ms settle timer is re-armed on every scroll event while held, and
+Chrome's `scrollend` releases it exactly. A fixed timeout has to be guessed from
+the distance to the target, so any section further away than the guess finishes
+scrolling *after* the hold has expired — and since the rest of that journey is
+downwards, the header stays hidden and the menu never comes back. Releasing on
+scroll-settled is distance-independent, so adding a longer section can't break
+it. `lastY` resyncs on release, so there's no stale delta to trip over.
+
+### Navigation bands
+
+`IntelliMake Journal` is a long label, and the six of them need ~1021px of
+content at full size and ~881px tightened. The nav steps down in measured bands
+rather than letting flex find that space — squeezing takes the room out of the
+wordmark, which then wraps to two lines inside a 72px header:
+
+| Viewport | Behaviour |
+|---|---|
+| ≥ 1161px | Full size — six links, `⌘K` badge, "Hire me" |
+| 1001–1160px | Tightened — smaller gaps/padding/font, `⌘K` badge dropped |
+| ≤ 1000px | Handover to the drawer — links, `⌘K` badge and "Hire me" hidden, hamburger shown |
+
+`white-space: nowrap` on `.brand__text strong` and `.nav__links a` is what makes
+a future overflow *visible* instead of silently squashing the header. If you add
+a seventh section, re-measure: don't assume the bands still fit.
 
 ## Keyboard shortcuts
 

@@ -62,59 +62,192 @@
 
   const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  /** True if `kw` appears in `q`, respecting word boundaries for short keywords. */
-  function mentions(q, kw) {
-    // Short keywords ("ai", "pm", "oms") must not match inside longer words —
-    // otherwise "ai" fires on "email" and "available".
+  /* ----------------------------------------------------------- normalising --
+     Everything below the small talk runs on a normalised, stemmed, alias-
+     expanded copy of the question rather than the raw string. That is what
+     stops "what does Derek do at WSU", "what does he do at Wayne State" and
+     "what's he studying" from being three unrelated misses: they normalise to
+     the same handful of tokens, the aliases map WSU → Wayne State, and the
+     stemmer folds studying/study/studied together. */
+
+  /** Lowercase, unify the fancy dashes and quotes, drop meaningless punctuation. */
+  function normalise(s) {
+    return String(s ?? "")
+      .toLowerCase()
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u201c\u201d]/g, '"')
+      .replace(/[\u2013\u2014]/g, "-")
+      .replace(/[^\w\s+#'.&-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  /**
+   * Conservative suffix stripping.
+   * "what is he studying", "where did he study" and "what did he study" are the
+   * same question — without this, one keyword only ever catches one form of it.
+   */
+  function stem(w) {
+    if (w.length <= 4) return w;
+    return w
+      .replace(/ies$/, "y")                 // studies → study
+      .replace(/(\w)ied$/, "$1y")           // studied → study
+      .replace(/(ing|ed)$/, "")             // studying → study
+      .replace(/([bdfglmnprt])\1$/, "$1")   // shipped → ship
+      .replace(/([^s])s$/, "$1");           // patents → patent
+  }
+
+  const stemPhrase = (s) => s.split(" ").map(stem).join(" ");
+  const words = (s) => s.split(" ").filter(Boolean);
+
+  /** True when a and b are at most one edit apart. Used to forgive typos. */
+  function withinOneEdit(a, b) {
+    if (Math.abs(a.length - b.length) > 1) return false;
+    if (a === b) return true;
+    let i = 0, j = 0, edits = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i] === b[j]) { i++; j++; continue; }
+      if (++edits > 1) return false;
+      if (a.length > b.length) i++;
+      else if (b.length > a.length) j++;
+      else { i++; j++; }
+    }
+    return edits + (a.length - i) + (b.length - j) <= 1;
+  }
+
+  /**
+   * True if `kw` appears in `q` (both already normalised).
+   *
+   * Short keywords must match whole words, or "ai" fires on "email" and "ms" on
+   * "systems". Longer ones may match inside a token, and a one-edit typo is
+   * forgiven against the knowledge base's own vocabulary, so "wayn state" or
+   * "intellmake" still land on the right answer.
+   */
+  function mentions(q, kw, vocab) {
+    if (!kw) return false;
+    if (kw.includes(" ")) return q.includes(kw);
     if (kw.length <= 3) return new RegExp(`\\b${escapeRe(kw)}\\b`).test(q);
-    return q.includes(kw);
+    if (q.includes(kw)) return true;
+    if (vocab && words(q).some((w) => w.length > 4 && withinOneEdit(w, kw))) return true;
+    return false;
+  }
+
+  /** Grow the question with the aliases declared in data.js → agent.aliases. */
+  function expand(q) {
+    let out = q;
+    for (const [pattern, extra] of CFG.aliases || []) {
+      if (mentions(q, normalise(pattern))) out += ` ${normalise(extra)}`;
+    }
+    return out;
   }
 
   /** Score a KB entry against the visitor's question. */
-  function score(entry, q) {
+  function score(entry, q, qStem, vocab) {
+    // `strong` keywords are decisive rather than cumulative. Use them for the
+    // rare unambiguous mention — a section by name, say — where accumulating
+    // evidence from other entries would otherwise outvote the obvious answer.
+    for (const t of entry.strong || []) {
+      if (mentions(q, normalise(t), vocab)) return 1000;
+    }
+
     let total = 0;
-    for (const kw of entry.keywords) {
-      if (!mentions(q, kw)) continue;
+    for (const kw of entry.keywords || []) {
+      const k = normalise(kw);
+      const hit = mentions(q, k, vocab) || mentions(qStem, stemPhrase(k));
+      if (!hit) continue;
       // Longer, phrase-like keywords are stronger signals than single tokens.
-      total += 1 + kw.split(/\s+/).length * 2 + Math.min(kw.length, 14) / 14;
+      total += 2 + k.split(/\s+/).length * 2 + Math.min(k.length, 14) / 14;
     }
     // A whole-word match on the entry id is a strong hint.
-    if (mentions(q, entry.id)) total += 3;
+    if (mentions(q, normalise(entry.id))) total += 3;
+    // `also` behaves like a keyword but scores lower — use it for the loose,
+    // tangential phrasings an editor wants to catch without over-weighting.
+    for (const t of entry.also || []) if (mentions(q, normalise(t))) total += 2;
     return total;
   }
 
-  function localAnswer(question) {
-    const q = question.toLowerCase();
+  /* ------------------------------------------------------------- answering -- */
 
+  /** Everything the agent can actually cover, for use when a question misses. */
+  function topics() {
+    return (CFG.kb || []).map((e) => e.label).filter(Boolean);
+  }
+
+  /**
+   * Nothing matched. Say so plainly, then show what *is* on file — a visitor who
+   * gets a list of real subjects can ask a better second question, which is the
+   * difference between an agent that feels narrow and one that feels dim.
+   */
+  function scopeAnswer() {
+    const list = topics().slice(0, 9);
+    return CFG.fallback + (list.length
+      ? "\n\nWhat I can go into detail on:\n" + list.map((t) => `• ${t}`).join("\n")
+      : "");
+  }
+
+  /**
+   * Something matched, but not decisively — several entries run close together.
+   * Offering the near misses beats picking one and sounding confident about the
+   * wrong thing.
+   */
+  function menuAnswer(ranked) {
+    const picks = ranked.slice(0, 3).map((r) => r.entry).filter((e) => e.label);
+    if (picks.length < 2) return scopeAnswer();
+    return "That could point a few ways — pick whichever you meant and I'll go deep:\n\n" +
+      picks.map((e) => `• **${e.label}**${e.sample ? ` — try “${e.sample}”` : ""}`).join("\n");
+  }
+
+  function localAnswer(question) {
     for (const st of SMALL_TALK) {
       if (st.test.test(question)) {
         return typeof st.answer === "function" ? st.answer(P) : st.answer;
       }
     }
 
-    let best = null;
-    let bestScore = 0;
-    for (const entry of CFG.kb || []) {
-      const s = score(entry, q);
-      if (s > bestScore) { bestScore = s; best = entry; }
-    }
+    const q = expand(normalise(question));
+    const qStem = stemPhrase(q);
+    const vocab = (CFG.kb || [])
+      .flatMap((e) => (e.keywords || []).flatMap((k) => words(normalise(k))));
 
-    if (!best || bestScore < 1) return CFG.fallback;
+    const ranked = (CFG.kb || [])
+      .map((entry) => ({ entry, s: score(entry, q, qStem, vocab) }))
+      .filter((r) => r.s > 0)
+      .sort((a, b) => b.s - a.s);
 
+    if (!ranked.length) return scopeAnswer();
+
+    // One solid keyword hit scores ~4.4; a phrase hit scores 8+. Below that the
+    // match is a coincidence of a short token, so ask which one they meant.
+    const CONFIDENT = 4;
+    if (ranked[0].s < CONFIDENT) return menuAnswer(ranked);
+
+    const best = ranked[0].entry;
     try {
       return typeof best.answer === "function" ? best.answer(P) : best.answer;
     } catch (err) {
       console.error("[agent] knowledge-base entry failed:", best.id, err);
-      return CFG.fallback;
+      return scopeAnswer();
     }
   }
 
   /* ================================== API ================================ */
+  /**
+   * Everything the model is allowed to know, in one string.
+   *
+   * This used to carry experience, skills and projects only — so in API mode the
+   * model had no idea Derek was studying at Wayne State, had no certifications
+   * and no IntelliMake research to draw on, and answered accordingly. It now
+   * mirrors the whole profile, and ends with the local knowledge base's own
+   * answers so both modes can never disagree about a fact.
+   */
   function profileDigest() {
-    const { meta, experience, skills, projects } = P;
-    return [
+    const { meta, hero, experience, skills, projects, education,
+            certifications, volunteering, testimonials, journal } = P;
+
+    const lines = [
       `Name: ${meta.name}`,
       `Headline: ${meta.headline}`,
+      `Rotating titles: ${(hero?.roles || []).join(" | ")}`,
       `Location: ${meta.location}`,
       `Availability: ${meta.availability}`,
       `Email: ${meta.email}`,
@@ -123,12 +256,39 @@
       ...experience.map((e) =>
         `- ${e.role}, ${e.company} (${e.start}-${e.end}): ${e.summary} ${(e.achievements || []).join(" ")}`),
       "",
+      "Education (most recent first):",
+      ...(education || []).map((e) => `- ${e.focus} — ${e.school} (${e.years})`),
+      "",
+      "Certifications:",
+      ...(certifications || []).map((c) => `- ${c.name} — ${c.issuer} (${c.year})`),
+      "",
+      "Current study, research and writing:",
+      journal?.lede ? `- ${journal.lede}` : null,
+      ...(journal?.entries || []).map((e) => `- ${e.title} (${e.date}, ${e.tag}): ${e.body.join(" ")}`),
+      "",
       "Skills:",
-      ...skills.map((g) => `- ${g.name}: ${g.items.map((i) => i.name).join(", ")}`),
+      // Items are plain strings; the old `i.name` printed "undefined" for each.
+      ...skills.map((g) => `- ${g.name}: ${g.items.map((i) => i.name ?? i).join(", ")}`),
       "",
       "Projects:",
       ...projects.map((p) => `- ${p.title} (${p.tagline}): ${p.description}`),
-    ].join("\n");
+      "",
+      "Volunteering:",
+      ...(volunteering || []).map((v) => `- ${v.role} at ${v.org} (${v.dates}): ${v.summary}`),
+      "",
+      "What colleagues say:",
+      ...(testimonials || []).map((t) => `- ${t.author}, ${t.title}: "${t.quote}"`),
+      "",
+      "Verified answers to common questions:",
+      ...(CFG.kb || []).map((e) => {
+        try {
+          const a = typeof e.answer === "function" ? e.answer(P) : e.answer;
+          return `Q: ${e.label || e.id}\nA: ${a}`;
+        } catch { return null; }
+      }).filter(Boolean),
+    ];
+
+    return lines.filter((l) => l !== null).join("\n");
   }
 
   function messagesFor() {

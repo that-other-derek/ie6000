@@ -38,7 +38,7 @@
   function renderStatic() {
     const { meta, hero, about, experience, projects, skills, marquee, education,
             certifications, testimonials, socials, stats, volunteering,
-            endorsements } = P;
+            endorsements, journal } = P;
 
     document.title = meta.siteTitle;
     const desc = $('meta[name="description"]');
@@ -157,6 +157,32 @@
       <div class="endorse__pills">
         ${endorsements.map((e) => `<span class="endorse__pill">${esc(e.skill)} <b>${e.count}</b></span>`).join("")}
       </div>` : "";
+
+    // Journal — the newest entry (index 0) gets the "Latest" badge.
+    if (journal) {
+      // The section's name lives in data.js and is applied here, so renaming it
+      // never means hunting for hard-coded strings in the markup.
+      if (journal.name) {
+        ["#navJournal", "#drawerJournal", "#journalEyebrowName"].forEach((s) => {
+          const el = $(s);
+          if (el) el.textContent = journal.name;
+        });
+      }
+      $("#journalLede").textContent = journal.lede;
+      $("#journalList").innerHTML = journal.entries.map((e, i) => `
+        <article class="journal-entry reveal" data-reveal style="--d:${i * 70}ms">
+          <div class="journal-entry__meta">
+            <span class="journal-entry__date">${esc(e.date)}</span>
+            <span class="journal-entry__tag">${esc(e.tag)}</span>
+            ${i === 0 ? '<span class="journal-entry__latest">Latest</span>' : ""}
+          </div>
+          <div class="journal-entry__body">
+            <h3 class="journal-entry__title">${esc(e.title)}</h3>
+            ${e.body.map((p) => `<p>${esc(p)}</p>`).join("")}
+            ${e.link ? `<a class="journal-entry__link" href="${esc(e.link.url)}" target="_blank" rel="noopener noreferrer">${esc(e.link.label)}${ICONS.external}</a>` : ""}
+          </div>
+        </article>`).join("");
+    }
 
     // Projects
     $("#projectCards").innerHTML = projects.map((p, i) => `
@@ -281,10 +307,10 @@
   // Set to false to keep the header permanently visible instead of auto-hiding.
   const HIDE_HEADER_ON_SCROLL = true;
 
-  // Auto-hide is suppressed while a click-triggered smooth scroll is running,
-  // so navigating to a section doesn't make the header vanish mid-flight.
-  let headerHoldUntil = 0;
-  const holdHeader = (ms = 1100) => { headerHoldUntil = performance.now() + ms; };
+  // How long the page has to go without a scroll event before a scroll is
+  // treated as finished. Long enough to ride out a dropped frame on a heavy
+  // page, short enough that the header re-arms the moment the page lands.
+  const SCROLL_SETTLE_MS = 160;
 
   function initNav() {
     const nav = $("#nav");
@@ -295,6 +321,39 @@
     const JITTER = 6;        // movements smaller than this accumulate
     let lastY = scrollY;
     let ticking = false;
+    let headerHeld = false;
+    let settleTimer = null;
+
+    /**
+     * Keep the header on screen for the duration of a scroll the page started
+     * itself — an anchor jump, "back to top" — plus a beat after it lands.
+     *
+     * The hold is released when scrolling *stops*, not after a fixed timeout.
+     * A fixed timeout has to be guessed from how far away the target is, and
+     * any target further than the guess finishes scrolling after the hold has
+     * already expired: the header hides mid-flight, and because the rest of
+     * the scroll is all downwards it never comes back. Tying the hold to the
+     * scroll settling makes it independent of section positions, so it keeps
+     * working as the page grows or the copy changes length.
+     */
+    function holdHeader() {
+      headerHeld = true;
+      nav.classList.remove("is-hidden");
+      armSettleTimer();
+    }
+    function armSettleTimer() {
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        headerHeld = false;
+        lastY = scrollY;   // resync, so there's no stale delta when the hold lifts
+      }, SCROLL_SETTLE_MS);
+    }
+    function releaseHeader() {
+      if (!headerHeld) return;
+      headerHeld = false;
+      clearTimeout(settleTimer);
+      lastY = scrollY;
+    }
 
     // A nav link pointing at a missing id fails silently — the browser just does
     // nothing when clicked. Surface it rather than shipping a dead link.
@@ -351,7 +410,10 @@
      */
     function updateHeader(y) {
       if (!HIDE_HEADER_ON_SCROLL) { nav.classList.remove("is-hidden"); lastY = y; return; }
-      if (performance.now() < headerHoldUntil) { nav.classList.remove("is-hidden"); lastY = y; return; }
+
+      // A page-driven scroll is in flight: stay visible and keep pushing the
+      // settle timer out, so the hold lasts exactly as long as the scrolling.
+      if (headerHeld) { armSettleTimer(); nav.classList.remove("is-hidden"); lastY = y; return; }
 
       const delta = y - lastY;
       if (Math.abs(delta) < JITTER) return;   // too small — let it accumulate
@@ -365,6 +427,16 @@
     addEventListener("scroll", () => {
       if (!ticking) { ticking = true; requestAnimationFrame(update); }
     }, { passive: true });
+
+    // Chrome fires `scrollend` when a smooth scroll finishes. Lifting the hold
+    // there rather than waiting out the settle timer keeps the release exact;
+    // the timer stays as the fallback for browsers without the event.
+    if ("onscrollend" in window) addEventListener("scrollend", releaseHeader);
+
+    // Any other part of the page that starts a scroll on the user's behalf
+    // (the command palette) asks for the hold through this event, so the
+    // decision to keep the header up lives in exactly one place.
+    addEventListener("nav:hold", holdHeader);
 
     addEventListener("resize", () => {
       const active = $(".nav__links a.is-active");
@@ -396,7 +468,9 @@
     burger.addEventListener("click", () => toggleDrawer(burger.getAttribute("aria-expanded") !== "true"));
     $$(".drawer a").forEach((a) => a.addEventListener("click", () => toggleDrawer(false)));
     addEventListener("keydown", (e) => { if (e.key === "Escape") toggleDrawer(false); });
-    addEventListener("resize", () => { if (innerWidth > 900) toggleDrawer(false); });
+    // Matches the breakpoint where the inline links come back (see the
+    // responsive block in styles.css) — above it the drawer must not linger.
+    addEventListener("resize", () => { if (innerWidth > 1000) toggleDrawer(false); });
   }
 
   /* ============================ 4. REVEAL FX ============================= */
@@ -588,7 +662,7 @@
   }
 
   /* ============================ 11. CONTACT ============================= */
-  function initContact() {
+  function initContact(mailer) {
     const form = $("#contactForm");
     const note = $("#formNote");
     const btn = $("#cfSubmit");
@@ -611,10 +685,11 @@
       if (!ok) { setNote("Please check the highlighted fields.", "err"); return; }
 
       btn.disabled = true;
-      setNote("Opening your email client…", "");
+      setNote("Choose where to send it…", "");
 
-      // Static site: hand off to the visitor's mail client.
-      // To capture submissions instead, see README → "Wiring the contact form".
+      // Static site: there is no server to post to, so the message is composed
+      // in the visitor's own mail service (see initMailer). Nothing is sent
+      // until they hit send there.
       const body = [
         `Name: ${data.name}`,
         `Email: ${data.email}`,
@@ -623,18 +698,202 @@
         data.message,
       ].filter(Boolean).join("\n");
 
-      const href = `mailto:${P.meta.email}?subject=${encodeURIComponent(`Website enquiry — ${data.name}`)}&body=${encodeURIComponent(body)}`;
-
-      setTimeout(() => {
-        window.location.href = href;
-        setNote("Thanks — your message is ready to send. I'll reply shortly.", "ok");
-        btn.disabled = false;
-        form.reset();
-      }, 450);
+      mailer.open(
+        { to: P.meta.email, subject: `Website enquiry — ${data.name}`, body },
+        () => {
+          setNote("Your message is ready to send — I'll reply shortly.", "ok");
+          btn.disabled = false;
+          form.reset();
+        }
+      );
     });
   }
 
-  /* =========================== 12. COMMAND PALETTE ====================== */
+  /* ============================= 11b. SEND CHOOSER ====================== */
+  /**
+   * Compose the visitor's message in a webmail service instead of handing it to
+   * `mailto:`.
+   *
+   * `mailto:` is the obvious choice on a static site, but it only works when a
+   * desktop mail client is configured. On a machine with none — or with webmail
+   * only, which is most people — the OS intercepts the protocol and offers an
+   * app store instead of a composer, so the message silently never gets sent.
+   *
+   * These are the services' own documented compose endpoints. Everything in the
+   * message goes in the query string, so nothing here needs a backend.
+   */
+  const MAIL_PROVIDERS = [
+    {
+      id: "gmail", label: "Gmail", initial: "G",
+      url: ({ to, subject, body }) =>
+        `https://mail.google.com/mail/?view=cm&fs=1&to=${enc(to)}&su=${enc(subject)}&body=${enc(body)}`,
+    },
+    {
+      id: "outlook", label: "Outlook / Microsoft 365", initial: "O",
+      url: ({ to, subject, body }) =>
+        `https://outlook.office.com/mail/deeplink/compose?to=${enc(to)}&subject=${enc(subject)}&body=${enc(body)}`,
+    },
+    {
+      id: "outlook-live", label: "Outlook.com", initial: "O",
+      url: ({ to, subject, body }) =>
+        `https://outlook.live.com/mail/0/deeplink/compose?to=${enc(to)}&subject=${enc(subject)}&body=${enc(body)}`,
+    },
+    {
+      id: "yahoo", label: "Yahoo Mail", initial: "Y",
+      url: ({ to, subject, body }) =>
+        `https://compose.mail.yahoo.com/?to=${enc(to)}&subject=${enc(subject)}&body=${enc(body)}`,
+    },
+    {
+      id: "proton", label: "Proton Mail", initial: "P",
+      url: ({ to, subject, body }) =>
+        `https://mail.proton.me/u/0/compose?to=${enc(to)}&subject=${enc(subject)}&body=${enc(body)}`,
+    },
+    {
+      id: "copy", label: "Copy the message", initial: "⧉", action: "copy",
+    },
+    {
+      id: "mailto", label: "Use my default mail app", initial: "@", action: "mailto",
+    },
+  ];
+
+  const enc = (s) => encodeURIComponent(s ?? "");
+  const MAILER_KEY = "pf-mailer";
+
+  /**
+   * Owns the send chooser and every `mailto:` link on the page.
+   * `open(message, onDone)` — message is `{ to, subject, body }`.
+   */
+  function initMailer() {
+    const dlg = $("#mailer");
+    const grid = $("#mailerGrid");
+    const note = $("#mailerNote");
+    const supportsDialog = typeof dlg?.showModal === "function";
+
+    const stored = () => {
+      try { return localStorage.getItem(MAILER_KEY); } catch { return null; }
+    };
+    const remember = (id) => { try { localStorage.setItem(MAILER_KEY, id); } catch { /* private mode */ } };
+
+    const setNote = (msg, kind) => {
+      note.textContent = msg;
+      note.className = `mailer__note${kind ? ` is-${kind}` : ""}`;
+    };
+
+    async function copyMessage({ subject, body }) {
+      const text = `${subject}\n\n${body}`;
+      try {
+        await navigator.clipboard.writeText(text);
+        setNote("Message copied — paste it into any mail service.", "ok");
+      } catch {
+        // Clipboard API needs a secure context and permission; fall back to a
+        // selection the visitor can copy by hand.
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.setAttribute("readonly", "");
+          ta.style.cssText = "position:fixed;top:-1000px";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+          setNote("Message copied — paste it into any mail service.", "ok");
+        } catch {
+          setNote("Couldn't copy automatically — select the text in the form instead.", "err");
+        }
+      }
+    }
+
+    function getProvider(id) { return MAIL_PROVIDERS.find((p) => p.id === id) || null; }
+
+    /** Hand the message to a provider. Opens a tab, or copies, or falls back to mailto. */
+    function deliver(id, message) {
+      const p = getProvider(id);
+      if (!p) return false;
+
+      if (p.action === "copy") { copyMessage(message); return true; }
+
+      if (p.action === "mailto") {
+        // Deliberate choice, so the OS prompt is expected rather than a surprise.
+        window.location.href =
+          `mailto:${message.to}?subject=${enc(message.subject)}&body=${enc(message.body)}`;
+        return true;
+      }
+
+      window.open(p.url(message), "_blank", "noopener,noreferrer");
+      return true;
+    }
+
+    function close() { if (dlg?.open) dlg.close(); }
+
+    /** Re-rendered on every open so the "last used" marker is never stale. */
+    function renderOptions() {
+      const last = stored();
+      grid.innerHTML = MAIL_PROVIDERS.map((p) => `
+        <button class="mailer__opt${p.action ? " mailer__opt--wide" : ""}${p.id === last ? " is-last" : ""}"
+                type="button" data-provider="${p.id}">
+          <b aria-hidden="true">${esc(p.initial)}</b><span>${esc(p.label)}</span>
+          ${p.id === last ? "<em>Last used</em>" : ""}
+        </button>`).join("");
+    }
+
+    /** Show the chooser. */
+    function open(message, onDone) {
+      // Nothing to choose from without <dialog> support — go straight out.
+      if (!supportsDialog) { deliver("gmail", message); onDone?.(); return; }
+      renderOptions();
+      setNote("");
+      dlg._message = message;
+      dlg._onDone = onDone;
+      dlg.showModal();
+    }
+
+    if (supportsDialog) {
+      grid.addEventListener("click", (e) => {
+        const btn = e.target.closest(".mailer__opt");
+        if (!btn) return;
+        const id = btn.dataset.provider;
+        const message = dlg._message;
+        if (!message) return;
+
+        deliver(id, message);
+        // Remember a real service so the next send is one click. Actions aren't
+        // remembered: they'd make every later send silently skip the chooser.
+        const p = getProvider(id);
+        if (p && !p.action) {
+          remember(id);
+          setNote(`Opening ${p.label}…`);
+        }
+        dlg._onDone?.();
+        // Copy stays open so the confirmation is readable; the rest close.
+        if (p?.action === "copy") return;
+        setTimeout(close, 500);
+      });
+
+      $("#mailerClose").addEventListener("click", close);
+      // <dialog> already closes on Escape, but automating that is unreliable —
+      // an explicit handler costs nothing and guarantees the scroll lock lifts.
+      dlg.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
+    }
+
+    // Any `mailto:` link on the page routes through the chooser too — otherwise
+    // the visitor hits the same missing-mail-client problem from the address
+    // links in the hero, footer, contact list and agent replies.
+    document.addEventListener("click", (e) => {
+      const a = e.target.closest?.('a[href^="mailto:"]');
+      if (!a) return;
+      const address = a.getAttribute("href").slice(7).split("?")[0];
+      if (!address) return;
+      e.preventDefault();
+      const msg = { to: address, subject: "", body: "" };
+      const saved = stored();
+      if (saved && getProvider(saved)) { deliver(saved, msg); return; }
+      open(msg);
+    });
+
+    return { open, deliver, stored, remember, getProvider };
+  }
+
+  /* ============================= 12. COMMAND PALETTE ====================== */
   function initPalette() {
     const dlg = $("#palette");
     const input = $("#paletteInput");
@@ -689,7 +948,9 @@
       if (cmd.href?.startsWith("#")) {
         const sec = $(cmd.href);
         if (sec) {
-          holdHeader();
+          // Ask the nav to hold itself open across the jump, rather than
+          // reaching into its scope.
+          window.dispatchEvent(new CustomEvent("nav:hold"));
           sec.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
         }
       }
@@ -731,18 +992,102 @@
     dlg.addEventListener("close", () => document.body.classList.remove("is-locked"));
   }
 
-  /* ============================== 13. BOOT ============================== */
+  /* ============================ 13. GARNISH ============================= */
+  /**
+   * Attach the colour-toned background plates.
+   *
+   * The image is only applied once it has actually decoded, so a missing file
+   * leaves the plate fully transparent — no broken-image box, no layout shift.
+   * The tritone ramp itself lives in CSS (`filter: url(#ds-tritone-*)`), so
+   * swapping the artwork is a matter of dropping a file into assets/img/.
+   * See the README there.
+   */
+  function initGarnish() {
+    const els = $$(".garnish[data-src]");
+    if (!els.length) return;
+
+    // Save-data users get the page without the photography.
+    if (navigator.connection?.saveData) {
+      console.info("[garnish] skipped — Save-Data is on.");
+      return;
+    }
+
+    const load = (el) => {
+      const src = el.dataset.src;
+      const probe = new Image();
+      probe.decoding = "async";
+      probe.onload = () => {
+        // Absolute, because a relative url() dropped into a custom property is
+        // resolved against the *stylesheet* that consumes it, not the document
+        // — which would turn assets/img/x.webp into assets/css/assets/img/x.webp.
+        el.style.setProperty("--plate-src", `url("${new URL(src, document.baseURI).href}")`);
+        el.classList.add("is-ready");
+      };
+      probe.onerror = () => {
+        console.info(`[garnish] ${src} not found — skipping. See assets/img/README.md.`);
+      };
+      probe.src = src;
+    };
+
+    if (!("IntersectionObserver" in window)) { els.forEach(load); }
+    else {
+      // Fetch each image only as its section approaches the viewport.
+      const io = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (!e.isIntersecting) return;
+          io.unobserve(e.target);
+          load(e.target);
+        });
+      }, { rootMargin: "400px 0px" });
+      els.forEach((el) => io.observe(el));
+    }
+
+    initPlateParallax();
+  }
+
+  /**
+   * A few pixels of counter-movement on the hero plate as the cursor travels,
+   * which is what makes it read as a layer sitting behind the glass card
+   * rather than as wallpaper. Transform-only, so it stays on the compositor;
+   * disabled for coarse pointers and reduced-motion users, where there is no
+   * cursor to track or the movement is unwelcome.
+   */
+  function initPlateParallax() {
+    const plate = $(".garnish--hero");
+    if (!plate || !finePointer || reduceMotion) return;
+
+    const hero = plate.parentElement;
+    const RANGE = 12; // px of travel at the screen edges
+    let raf = null;
+
+    hero.addEventListener("pointermove", (e) => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        const dx = (e.clientX / innerWidth - .5) * -2 * RANGE;
+        const dy = (e.clientY / innerHeight - .5) * -2 * RANGE;
+        plate.style.transform = `translate3d(${dx.toFixed(2)}px, ${dy.toFixed(2)}px, 0)`;
+        raf = null;
+      });
+    }, { passive: true });
+
+    hero.addEventListener("pointerleave", () => {
+      plate.style.transform = "";
+    });
+  }
+
+  /* ============================== 14. BOOT ============================== */
   function boot() {
     renderStatic();
     initTheme();
     initNav();
     initTypedRole();
+    initGarnish();
     initReveal();
     initCounters();
     initScrollFx();
     initPointerFx();
     initQuotes();
-    initContact();
+    initContact(initMailer());
     initPalette();
 
     // Hero secondary CTA opens the agent

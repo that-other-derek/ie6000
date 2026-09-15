@@ -103,6 +103,18 @@ body {
 body.is-locked { overflow: hidden; }
 
 img, svg, canvas { display: block; max-width: 100%; }
+
+/* Tritone filter definitions for the background plates. Kept in the document
+   (not `display: none`, which would neutralise the filters in some engines)
+   but taken out of flow so it occupies no space. */
+.photo-filters {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 button, input, textarea, select { font: inherit; color: inherit; }
 button { background: none; border: 0; cursor: pointer; }
 a { color: inherit; text-decoration: none; }
@@ -285,7 +297,15 @@ body.has-pointer .spotlight { opacity: 1; }
   box-shadow: 0 8px 22px -8px rgba(124, 92, 255, .9);
 }
 .brand__text { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
-.brand__text strong { font-family: var(--font-display); font-size: .98rem; letter-spacing: -.01em; }
+.brand__text strong {
+  font-family: var(--font-display);
+  font-size: .98rem;
+  letter-spacing: -.01em;
+  /* Never let flex squeeze the brand until the name wraps: a two-line
+     wordmark inside a 72px header looks broken, and the nav labels are the
+     better thing to shrink (see the responsive block). */
+  white-space: nowrap;
+}
 .brand__text em {
   font-style: normal;
   font-size: .74rem;
@@ -308,6 +328,7 @@ body.has-pointer .spotlight { opacity: 1; }
   font-size: .9rem;
   font-weight: 500;
   color: var(--text-dim);
+  white-space: nowrap;
   transition: color .25s var(--ease), background-color .25s var(--ease);
   z-index: 1;
 }
@@ -639,10 +660,17 @@ html[data-theme="light"] #themeToggle .i-sun { display: block; }
   letter-spacing: .02em;
   color: var(--muted);
 }
+/* The role rotates, and the long titles wrap onto a second line while the
+   short one doesn't. Left to itself that changes the height of the copy
+   column on every rotation, which shuffles everything below it up and down —
+   and the caret, centred beside the whole block, bounced with it. Reserving
+   two lines outright pins the column's height, and laying the caret out
+   inline rather than as a flex sibling keeps it attached to the end of the
+   text instead of floating to the right of the block. */
 .hero__role {
-  display: flex;
-  align-items: center;
-  min-height: 1.15em;
+  display: block;
+  line-height: 1.12;
+  min-height: 2.24em;          /* exactly two lines, always */
   color: var(--text-dim);
   font-size: .62em;
   font-weight: 600;
@@ -652,6 +680,7 @@ html[data-theme="light"] #themeToggle .i-sun { display: block; }
   width: 3px;
   height: .85em;
   margin-left: 3px;
+  vertical-align: -.06em;
   background: var(--accent-3);
   border-radius: 2px;
   animation: blink 1.05s steps(2) infinite;
@@ -860,6 +889,13 @@ html[data-theme="light"] #themeToggle .i-sun { display: block; }
   font-size: clamp(1.15rem, 2vw, 1.5rem);
   letter-spacing: -.02em;
   margin-bottom: 34px;
+}
+
+.section__lede {
+  max-width: 68ch;
+  margin-top: 20px;
+  font-size: clamp(.98rem, 1.1vw, 1.06rem);
+  color: var(--text-dim);
 }
 
 /* About */
@@ -1373,11 +1409,16 @@ html[data-theme="light"] #themeToggle .i-sun { display: block; }
 
 /* Contact */
 .contact__panel {
+  /* The portrait's head has to live in the clear band above the copy — the
+     top padding plus the eyebrow — or the section title lands across the face.
+     Publishing the padding as a variable lets the plate size itself from it
+     (see .garnish--contact), so the two can never drift apart. */
+  --contact-top: clamp(46px, 6vw, 72px);
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: clamp(30px, 5vw, 60px);
-  padding: clamp(30px, 5vw, 56px);
+  padding: var(--contact-top) clamp(30px, 5vw, 56px) clamp(30px, 5vw, 56px);
   border-radius: var(--radius-xl);
   overflow: hidden;
 }
@@ -1439,6 +1480,95 @@ html[data-theme="light"] #themeToggle .i-sun { display: block; }
 .contact__note.is-ok { color: #38d39f; }
 .contact__note.is-err { color: #ff6b81; }
 
+/* --- Send chooser ---------------------------------------------------------
+   A static page can't send mail itself, and the usual answer — hand the
+   composed message to `mailto:` — quietly assumes a desktop mail client is
+   configured. On a machine without one (or with only webmail, which is most
+   people now) Windows intercepts the protocol and opens the Store instead of a
+   composer, so the message never gets sent.
+
+   Instead the visitor picks the service they actually use and we build that
+   service's compose URL. Nothing is sent until they press send over there, and
+   no mail client is required at any point. */
+.mailer {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  width: min(520px, calc(100vw - 32px));
+  margin: 14vh auto auto;
+  color: var(--text);
+}
+.mailer::backdrop {
+  background: color-mix(in srgb, #05060b 72%, transparent);
+  backdrop-filter: blur(6px);
+}
+.mailer[open] .mailer__box { animation: paletteIn .32s var(--ease-spring) both; }
+.mailer__box {
+  border-radius: 18px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--bg-2) 96%, transparent);
+  box-shadow: 0 40px 100px -30px rgba(0, 0, 0, .95);
+  padding: 22px;
+}
+.mailer__head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 18px; }
+.mailer__head strong { display: block; font-family: var(--font-display); font-size: 1.04rem; }
+.mailer__head .mailer__sub {
+  display: block;
+  margin-top: 5px;
+  font-size: .8rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.mailer__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mailer__opt {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: .9rem;
+  font-weight: 500;
+  text-align: left;
+  transition: border-color .25s var(--ease), background-color .25s var(--ease),
+              transform .25s var(--ease);
+}
+.mailer__opt b {
+  display: grid;
+  place-items: center;
+  width: 26px; height: 26px;
+  flex: 0 0 26px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  font-family: var(--font-display);
+  font-size: .78rem;
+  letter-spacing: 0;
+}
+.mailer__opt span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mailer__opt:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  transform: translateY(-1px);
+}
+.mailer__opt em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: .68rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.mailer__opt.is-last { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.mailer__head #mailerClose { margin-left: auto; flex: 0 0 auto; }
+.mailer__opt--wide { grid-column: 1 / -1; }
+.mailer__note { margin-top: 16px; font-size: .8rem; color: var(--muted); min-height: 1.2em; }
+.mailer__note.is-ok { color: #38d39f; }
+.mailer__note.is-err { color: #ff6b81; }
+@media (max-width: 520px) {
+  .mailer__grid { grid-template-columns: 1fr; }
+}
+
 /* Back to top — sits ABOVE the agent launcher, which owns the bottom-right
    corner (same offset + higher z-index would make this unclickable). */
 .totop {
@@ -1462,6 +1592,327 @@ html[data-theme="light"] #themeToggle .i-sun { display: block; }
 .totop.is-on { opacity: 1; transform: none; pointer-events: auto; }
 .totop:hover { color: var(--accent-3); transform: translateY(-4px); }
 .totop svg { width: 19px; height: 19px; }
+
+/* ========================= 7b. JOURNAL ==================================== */
+.journal-list { border-top: 1px solid var(--border); }
+
+.journal-entry {
+  display: grid;
+  grid-template-columns: minmax(170px, 210px) minmax(0, 1fr);
+  gap: clamp(16px, 3vw, 46px);
+  padding: clamp(26px, 3.5vw, 42px) 0;
+  border-bottom: 1px solid var(--border);
+}
+.journal-entry__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.journal-entry__date {
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.journal-entry__tag {
+  font-size: .78rem;
+  line-height: 1.35;
+  padding: 5px 12px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+}
+.journal-entry__latest {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: .66rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--accent-3);
+}
+.journal-entry__latest::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent-3);
+  box-shadow: 0 0 0 0 rgba(61, 218, 215, .7);
+  animation: pulse 2.4s infinite;
+}
+.journal-entry__title {
+  font-family: var(--font-display);
+  font-size: clamp(1.15rem, 2.2vw, 1.5rem);
+  font-weight: 600;
+  letter-spacing: -.025em;
+  margin-bottom: 14px;
+}
+.journal-entry__body p {
+  max-width: 68ch;
+  font-size: .97rem;
+  color: var(--text-dim);
+  margin-bottom: 13px;
+}
+.journal-entry__body p:last-child { margin-bottom: 0; }
+.journal-entry__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 18px;
+  font-size: .86rem;
+  font-weight: 600;
+  color: var(--accent-3);
+  padding-bottom: 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-3) 40%, transparent);
+  transition: border-color .25s var(--ease), gap .25s var(--ease);
+}
+.journal-entry__link svg { width: 15px; height: 15px; }
+.journal-entry__link:hover { border-bottom-color: var(--accent-3); gap: 10px; }
+
+@media (max-width: 720px) {
+  .journal-entry { grid-template-columns: 1fr; gap: 14px; }
+  .journal-entry__meta { flex-direction: row; flex-wrap: wrap; align-items: center; }
+}
+
+/* ======================= 7c. PHOTOGRAPHIC PLATES ========================= */
+/* The gallery shot and the profile cut-out, used as colour-toned background
+   plates rather than as pictures. Each one is pushed through a tritone ramp
+   (the inline SVG filters in index.html) that remaps the photograph's
+   luminance onto the brand gradient — indigo shadows, violet midtones, blue
+   and teal highlights — so the imagery reads as part of the palette instead
+   of as a photo dropped on top of it.
+
+   Why an SVG filter rather than the obvious CSS routes:
+     · `grayscale() + sepia()/hue-rotate()` can only ever produce one hue pair
+       and crushes skin tones, which is why the previous pass was so faint.
+     · A gradient overlay with a blend mode is the other classic duotone, but
+       it has no alpha: over the cut-out it would paint a rectangle behind the
+       figure. `feComponentTransfer` remaps channels and leaves alpha alone,
+       so a transparent cut-out stays transparent.
+
+   JS attaches the source to ::before only once it has decoded, so a missing
+   file renders nothing at all — no broken-image icon, no layout shift. */
+
+html[data-theme="dark"]  { --plate-filter: url(#ds-tritone-dark); }
+html[data-theme="light"] { --plate-filter: url(#ds-tritone-light); }
+
+.garnish {
+  --plate-opacity: .34;        /* overall strength */
+  --plate-boost: 1;            /* per-theme scaling of the above */
+  --plate-blend: screen;       /* screen = shadows drop out; normal = figure */
+  --plate-bright: 1;           /* tonal trims, applied before the ramp */
+  --plate-contrast: 1;
+  --plate-scale: 1.04;         /* slight over-scale so cropping stays soft */
+  --plate-size: cover;         /* how the source fills the plate box */
+  --plate-pos: 50% 42%;        /* which part of the source lands in the box */
+  --plate-origin: 50% 42%;
+  --plate-mask: radial-gradient(ellipse 62% 66% at 50% 44%,
+                 #000 0%, rgba(0, 0, 0, .55) 46%, transparent 76%);
+  position: absolute;
+  pointer-events: none;
+  z-index: -1;                 /* above the section background, below the text */
+  opacity: 0;
+  mix-blend-mode: var(--plate-blend);
+  transition: opacity 1.4s var(--ease);
+  mask-image: var(--plate-mask);
+  -webkit-mask-image: var(--plate-mask);
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+  -webkit-mask-size: 100% 100%;
+}
+.garnish.is-ready { opacity: calc(var(--plate-opacity) * var(--plate-boost)); }
+
+.garnish::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--plate-src) var(--plate-pos) / var(--plate-size) no-repeat;
+  transform: scale(var(--plate-scale));
+  transform-origin: var(--plate-origin);
+  filter: brightness(var(--plate-bright)) contrast(var(--plate-contrast))
+          var(--plate-filter, url(#ds-tritone-dark));
+}
+
+/* A fine scanline over the opaque plate so the photograph sits in the same
+   "printed" register as the rest of the page. Opaque plates only: over a
+   cut-out the lines would hang in mid-air where the figure isn't. */
+.garnish--photo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    0deg, rgba(255, 255, 255, .05) 0 1px, transparent 1px 3px);
+  mix-blend-mode: overlay;
+  opacity: .7;
+}
+
+/* `normal` keeps a cut-out a genuine translucent figure; `screen` would blow
+   the highlights out into a white blob. */
+html[data-theme="dark"] .garnish--cutout { --plate-blend: normal; }
+
+/* On a light theme a glowing plate would smear into the page, so the plates
+   multiply instead — ink on paper rather than a light source. The ramp's
+   highlight end is near-white precisely so that whites stay white under
+   `multiply`, and the tonal trims are reset because a lift that helps a plate
+   glow on black will erase it on white. The opacity boost compensates for a
+   ramp that is doing much less than the dark one. */
+html[data-theme="light"] .garnish {
+  --plate-blend: multiply;
+  --plate-boost: 2;
+  --plate-bright: 1;
+  --plate-contrast: 1;
+}
+
+/* The cut-outs already carry far more tone than the photos do once the ramp
+   has flattened them onto a light ground, so they don't want the boost. */
+html[data-theme="light"] .garnish--cutout { --plate-boost: 1; }
+
+/* A plate is deliberately oversized so the mask has slack to fade into — which
+   would otherwise count towards the document's scroll width, since `body`
+   propagates its `overflow-x: hidden` to the viewport rather than clipping.
+   Clipping the hosting section keeps the overflow local. `clip` rather than
+   `hidden` so it never becomes a scroll container. */
+.section:has(> .garnish) { overflow: clip; }
+
+/* --- Hero: the gallery plate, framed on the figure --- */
+/* The source is a 3:4 photograph with the starburst chandelier on the left and
+   the figure on the right; measured off the file, the face sits at 54% across
+   and 59% down. The plate is a narrow box, so `cover` crops the frame to about
+   56% of its width — `--plate-pos` slides that window across to land on the
+   face, and the box is anchored high so the head clears the stats card rather
+   than sitting entirely behind it. */
+.garnish--hero {
+  --plate-opacity: .58;
+  --plate-bright: 1.3;
+  --plate-contrast: 1.12;
+  --plate-pos: 60% 46%;        /* 60% puts the face at the centre of the window */
+  --plate-scale: 1;
+  --plate-origin: 50% 59%;
+  --plate-mask: radial-gradient(ellipse 58% 48% at 50% 56%,
+                 #000 0%, rgba(0, 0, 0, .6) 44%, transparent 76%);
+  top: -17%;
+  right: -6%;
+  width: min(24vw, 340px);
+  height: 84%;
+}
+
+/* --- About: the profile cut-out, in the open band above the cards --- */
+/* The section head is one column wide, which leaves the whole top-right of
+   the section empty — the one place in About a portrait can sit without
+   putting a paragraph on top of it. */
+.garnish--about {
+  --plate-opacity: .32;
+  --plate-pos: 50% 0%;
+  --plate-scale: 1;
+  --plate-origin: 50% 0%;
+  --plate-mask: radial-gradient(ellipse 54% 56% at 50% 32%,
+                 #000 0%, rgba(0, 0, 0, .5) 44%, transparent 78%);
+  top: 1%;
+  right: 2%;
+  width: min(34vw, 400px);
+  height: 44%;
+}
+
+/* --- Journal: the museum ceiling, as a wide band along the top --- */
+/* `background-size` rather than `cover`, because here the box is short and
+   wide and `cover` would scale to the *height* and bring the figure into
+   frame. At 135% the window holds the ceiling and the crowns of both
+   chandeliers and stops just above his head. */
+.garnish--journal {
+  --plate-opacity: .3;
+  --plate-size: 135% auto;
+  --plate-pos: 4% 0%;
+  --plate-scale: 1;
+  --plate-origin: 50% 0%;
+  --plate-mask: radial-gradient(ellipse 62% 60% at 62% 34%,
+                 #000 0%, rgba(0, 0, 0, .5) 44%, transparent 78%);
+  top: 0;
+  right: -8%;
+  width: min(60vw, 780px);
+  height: 36%;
+}
+
+/* --- Contact: the cut-out, head above the copy --- */
+/* The panel is two full columns with no clear space beside the text, so the
+   portrait has to share the heading column. The one thing it must not do is
+   put the section title across the face, so the plate is sized to the panel's
+   own top padding and pinned to the top of the box:
+
+     clear band = top padding + eyebrow + gap  ≈  top padding + 35px
+     head height = 0.22 × image height = 0.22 × (5.8 × top padding) ≈ 1.28 × top padding
+
+   Since 1.28p < p + 35 for any padding up to 125px, the face always clears the
+   headline with room to spare, at every width — measured, the face used to sit
+   behind the first two lines with about 29% of it covered.
+
+   The shoulders still pass behind the heading, which is what keeps it reading
+   as a plate rather than a floating head. */
+.garnish--contact {
+  --plate-opacity: .38;
+  --plate-bright: 1.6;
+  --plate-contrast: .98;
+  --plate-size: auto calc(var(--contact-top) * 5.8);
+  --plate-pos: 50% 0%;
+  --plate-scale: 1;
+  --plate-origin: 50% 0%;
+  /* Four stops rather than three: the flat middle keeps the whole face at
+     similar strength instead of vignetting from crown to chin. */
+  --plate-mask: radial-gradient(ellipse 46% 34% at 50% 8%,
+                 #000 0%, rgba(0, 0, 0, .85) 34%, rgba(0, 0, 0, .35) 62%, transparent 82%);
+  top: 0;
+  left: -3%;
+  width: min(44%, 440px);
+  height: 100%;
+}
+
+/* Below 900px every section collapses to one column, so body copy spans the
+   full width and anything anchored to a side edge lands directly behind it.
+   The plates move to the *bottom* of their section — behind the hero card and
+   behind the contact panel, both of which are opaque enough to carry type —
+   and weaken. The About portrait has nowhere left to go, so it's dropped. */
+@media (max-width: 900px) {
+  .garnish--hero {
+    --plate-opacity: .3;
+    --plate-mask: radial-gradient(ellipse 54% 52% at 50% 52%,
+                   #000 0%, rgba(0, 0, 0, .5) 46%, transparent 78%);
+    top: auto;
+    bottom: -6%;
+    right: -30%;
+    width: 112vw;
+    height: 62%;
+  }
+  .garnish--journal {
+    --plate-opacity: .2;
+    right: -22%;
+    width: 104vw;
+  }
+  .garnish--about { display: none; }
+
+  /* Same treatment as desktop, but the panel is far taller here so the plate
+     is sized in absolute terms off the top padding instead of as a percentage
+     of the panel — a percentage would scale the head up with the panel and
+     put it straight back behind the copy. */
+  .garnish--contact {
+    --plate-opacity: .22;
+    --plate-size: auto calc(var(--contact-top) * 3.4);
+    --plate-pos: 50% 0%;
+    --plate-mask: radial-gradient(ellipse 46% 34% at 50% 8%,
+                   #000 0%, rgba(0, 0, 0, .85) 34%, rgba(0, 0, 0, .35) 62%, transparent 82%);
+    top: 0;
+    left: auto;
+    right: -6%;
+    width: 66%;
+    height: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .garnish { transition: none; }
+}
 
 /* ============================ 8. AI AGENT ================================= */
 .agent {
@@ -1807,7 +2258,8 @@ body:has(.agent[data-open="true"]) .totop { opacity: 0; pointer-events: none; }
   transform: none;
   transition: opacity .75s var(--ease), transform .85s var(--ease-spring);
 }
-.card.reveal, .highlight.reveal, .job.reveal, .vol.reveal { transition-delay: var(--d, 0ms); }
+.card.reveal, .highlight.reveal, .job.reveal, .vol.reveal,
+.journal-entry.reveal { transition-delay: var(--d, 0ms); }
 
 @keyframes gradShift {
   0%, 100% { background-position: 0% 50%; }
@@ -1866,6 +2318,27 @@ body:has(.agent[data-open="true"]) .totop { opacity: 0; pointer-events: none; }
 }
 
 /* ========================== 11. RESPONSIVE ================================ */
+/* "IntelliMake Journal" is a long label, and the six of them need ~1021px of
+   content width at full size and ~881px tightened. Rather than let flex find
+   that space, the nav steps down in measured bands: tighten, then hand over to
+   the drawer. Squeezing is not an option — flex takes the space out of the
+   brand, whose name then wraps onto two lines inside a 72px header. */
+@media (max-width: 1160px) {
+  .brand { flex: 0 0 auto; }
+  .nav__inner { gap: 12px; }
+  .nav__links { gap: 2px; }
+  .nav__links a { padding: 9px 10px; font-size: .85rem; }
+  /* The shortcut badge is the cheapest thing to lose — the button keeps its
+     title and aria-label, and Ctrl/⌘+K still opens the palette. */
+  .icon-btn kbd { display: none; }
+}
+
+@media (max-width: 1000px) {
+  .nav__links { display: none; }
+  .hamburger { display: flex; }
+  .nav__cta { display: none; }
+}
+
 @media (max-width: 1080px) {
   .hero__inner { grid-template-columns: 1fr; }
   .hero__card { max-width: 460px; }
@@ -1873,9 +2346,6 @@ body:has(.agent[data-open="true"]) .totop { opacity: 0; pointer-events: none; }
 }
 
 @media (max-width: 900px) {
-  .nav__links { display: none; }
-  .hamburger { display: flex; }
-  .nav__cta { display: none; }
   .about { grid-template-columns: 1fr; }
   .contact__panel { grid-template-columns: 1fr; }
 }
@@ -1922,7 +2392,8 @@ body:has(.agent[data-open="true"]) .totop { opacity: 0; pointer-events: none; }
 }
 
 @media print {
-  .nav, .agent, .totop, .progress, .drawer, .marquee, .spotlight, .banner { display: none !important; }
+  .nav, .agent, .totop, .progress, .drawer, .marquee, .spotlight, .banner,
+  .garnish { display: none !important; }
   body { background: #fff; color: #000; }
   .section { padding: 20px 0; page-break-inside: avoid; }
 }

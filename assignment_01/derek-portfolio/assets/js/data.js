@@ -269,6 +269,47 @@ window.PROFILE = {
     },
   ],
 
+  /* ===========================================================================
+     INTELLIMAKE JOURNAL — periodic notes from the MS programme.
+
+     `name` is the one place this section is named. The desktop nav link, the
+     mobile drawer link, the section eyebrow and the AI agent all read it from
+     here, so renaming the section is a one-line change rather than a hunt for
+     four hard-coded strings. (It's deliberately not called just "Journal" —
+     that reads as a personal diary, which is the opposite of what it is.)
+
+     Add new entries at the TOP of `entries`; the section renders itself and
+     the first entry automatically gets the "Latest" badge.
+     ========================================================================= */
+  journal: {
+    name: "IntelliMake Journal",
+    lede:
+      "IntelliMake is Wayne State University's proof of concept for autonomous manufacturing — not a simulation exercise. Every MS student in the Industrial Engineering, Artificial Intelligence programme contributes coursework toward the same working system. My final year is going into two parts of it.",
+    entries: [
+      {
+        date: "September 2026",
+        tag: "Manufacturing Intelligence Exchange",
+        title: "Joining the Manufacturing Intelligence Exchange",
+        body: [
+          "The Exchange is IntelliMake's agent layer, and it works as an exchange rather than a fixed pipeline: autonomous agents post their knowledge objects, then exchange and retrieve what's relevant so they can sequence their workloads collaboratively — behaving as one efficient unit rather than a set of agents working in isolation.",
+          "That's the part that pulled me in. I'm joining as a contributing member, with my focus on the foundations of an AI community hub: how a knowledge object has to be structured before another agent can act on it, how relevance gets established when both the publisher and the consumer are machines, and what keeps a shared pool of knowledge trustworthy as more agents start contributing to it.",
+          "Building a hub for agents rather than people is the genuinely new problem. Same shape as the enterprise platforms I've spent twenty years on — contributors, governance, a definition of done — except the contributors don't get tired, don't need onboarding, and won't tell you when the schema is wrong.",
+        ],
+        link: { label: "intellimake.org", url: "https://intellimake.org" },
+      },
+      {
+        date: "September 2026",
+        tag: "IntelliAware AI Vision",
+        title: "Contributing to IntelliAware AI Vision",
+        body: [
+          "The second group I'm joining is IntelliAware AI Vision, IntelliMake's computer vision effort. If the Exchange is about how agents share what they know, the vision group is about what they can perceive — the sensing layer that gives an autonomous manufacturing system its picture of the world.",
+          "I'll be contributing to both. The balance sits on the Exchange: the hub model is the newer problem, and it's the one I want to come out of this able to build end to end.",
+        ],
+        link: null,
+      },
+    ],
+  },
+
   // Rendered as grouped capability chips.
   // NOTE: deliberately not percentage bars — self-assigned proficiency scores
   // aren't verifiable and read as an engineer's framing, not a leader's.
@@ -516,23 +557,75 @@ window.PROFILE = {
     model: "gpt-4o-mini",
 
     // Starter prompts rendered as chips in the panel.
+    // Lead with the questions a recruiter actually types — including the
+    // study/current-work ones, which the agent previously couldn't answer.
     suggestions: [
+      "What's he studying at Wayne State?",
+      "What does he do now?",
       "Summarise his experience",
       "What are his biggest wins?",
       "Tell me about his AI work",
-      "What do colleagues say?",
-      "How large a team has he led?",
       "How do I get in touch?",
     ],
 
     // Extra system instruction appended when mode === "api".
+    // Deliberately NOT "professional background only": his degree, his
+    // IntelliMake research and his volunteering are all fair game, and the old
+    // wording made the agent refuse questions it should have answered.
     systemPromptExtra:
-      "Only discuss Derek's professional background. If asked something outside that, politely redirect. Never invent employers, dates or metrics.",
+      "Cover Derek's professional background, his studies and research, his " +
+      "certifications and his volunteering — anything on this site is fair " +
+      "game. For anything genuinely outside that, say you don't have it rather " +
+      "than guessing. Never invent employers, dates, metrics or credentials.",
+
+    // Query expansion, applied before scoring.
+    //
+    // Each pair is [what the visitor typed, extra terms to also search for].
+    // This is the fix for the class of question that used to fall straight
+    // through: "what does Derek do at WSU" had no keyword in common with any
+    // entry, because the knowledge base said "Wayne State University" and the
+    // visitor said "WSU".
+    aliases: [
+      ["wsu", "wayne state university masters degree study intellimake capstone research"],
+      ["wayne state", "wsu university masters degree study intellimake capstone research"],
+      ["masters", "education degree university study qualification ms"],
+      ["masters degree", "education degree university study qualification ms"],
+      ["degree", "education university study masters qualification"],
+      ["postgrad", "education university masters study"],
+      // Note: these add terms that exist in the knowledge base below. Keep them
+      // targeted — a broad expansion makes several entries match at once and the
+      // wrong one can win.
+      ["intellimake", "manufacturing intelligence exchange intelliaware autonomous manufacturing agents research project"],
+      ["intelliaware", "computer vision intellimake autonomous manufacturing research project"],
+      ["the exchange", "manufacturing intelligence exchange intellimake agents research project"],
+      ["west point", "usma military army education west point"],
+      ["army", "military service west point veterans"],
+      ["current job", "now currently role great lakes water authority consulting"],
+      ["current role", "now currently role great lakes water authority consulting"],
+      ["these days", "now currently role study"],
+      ["pmp", "certification project management professional credential"],
+      ["cspo", "certification scrum product owner credential"],
+      ["csm", "certification scrummaster credential"],
+      ["resume", "cv experience download contact"],
+      ["cv", "resume experience download contact"],
+      ["salary", "compensation rate discussion contact"],
+      ["compensation", "salary rate discussion contact"],
+      ["comp-wise", "compensation salary package expectations"],
+      ["comp wise", "compensation salary package expectations"],
+      ["patents", "patent uspto autonomous ai companion architecture"],
+      ["genai", "generative ai llm artificial intelligence"],
+      ["llm", "generative ai artificial intelligence large language model"],
+      ["python", "data science analytics coding technical hands-on"],
+      ["hire", "hiring availability open to roles recruit"],
+    ],
 
     kb: [
       {
         id: "experience",
-        keywords: ["experience", "background", "career", "history", "worked", "role", "job", "cv", "resume", "summary", "summarise", "summarize", "years"],
+        label: "His 20+ year career, role by role",
+        sample: "Summarise his experience",
+        keywords: ["experience", "background", "career", "history", "worked", "role", "job", "cv", "resume", "summary", "summarise", "summarize", "years", "companies", "employers", "worked for"],
+        also: ["who is he", "tell me about him", "overview", "bio"],
         answer: ({ experience }) =>
           "Derek has 20+ years in product and program leadership:\n\n" +
           experience
@@ -542,7 +635,10 @@ window.PROFILE = {
       },
       {
         id: "tech",
-        keywords: ["tech", "stack", "technologies", "tools", "language", "languages", "framework", "skills", "know", "use", "proficient", "technically", "toolkit"],
+        label: "His tech stack and the tools he uses",
+        sample: "What's his tech stack?",
+        keywords: ["tech", "stack", "technologies", "tools", "language", "languages", "framework", "skills", "know", "use", "proficient", "technically", "toolkit", "tech stack"],
+        also: ["what tools", "what software", "what platforms"],
         answer: ({ skills }) =>
           "His toolkit breaks down like this:\n\n" +
           skills
@@ -552,13 +648,18 @@ window.PROFILE = {
       },
       {
         id: "ai",
-        keywords: ["ai work", "artificial intelligence", "agent", "patent", "uspto", "machine learning", "autonomous", "llm", "ai", "industrial ai"],
+        label: "His AI work and the three patents",
+        sample: "Tell me about his AI work",
+        keywords: ["ai work", "artificial intelligence", "agent", "patent", "uspto", "machine learning", "autonomous", "llm", "ai", "industrial ai", "generative ai", "genai"],
+        also: ["ai experience", "does he know ai", "ai background"],
         answer:
-          "AI is his current focus. He's in the final year of an M.S. in Artificial Intelligence with an Industrial AI major at Wayne State University, and has filed three provisional patent applications with the USPTO covering autonomous AI companion architecture, token-based identity systems, and hierarchical ethical constraint enforcement — built as his IE6010 capstone.\n\nHe also holds a Google Advanced Data Analytics Professional certificate plus IBM certifications in Machine Learning with Python (with Honors), Data Science Specialization, and Databases and SQL for Data Science. On the applied side he volunteers with DataKind, building Python dashboards for public-interest datasets.",
+          "AI is his current focus. He's in the final year of an M.S. in Artificial Intelligence with an Industrial AI major at Wayne State University, and has filed three provisional patent applications with the USPTO covering autonomous AI companion architecture, token-based identity systems, and hierarchical ethical constraint enforcement — built as his IE6010 capstone.\n\nHe also holds a Google Advanced Data Analytics Professional certificate plus IBM certifications in Machine Learning with Python (with Honors), Data Science Specialization, and Databases and SQL for Data Science. On the applied side he volunteers with DataKind, building Python dashboards for public-interest datasets.\n\nFor the research itself — IntelliMake, the Manufacturing Intelligence Exchange, IntelliAware AI Vision — ask what he's working on right now.",
       },
       {
         id: "win",
-        keywords: ["win", "biggest", "achievement", "accomplishment", "proud", "impact", "result", "success", "best", "roi", "numbers", "wins"],
+        label: "His biggest wins, with the numbers",
+        sample: "What are his biggest wins?",
+        keywords: ["win", "biggest", "achievement", "accomplishment", "proud", "impact", "result", "success", "best", "roi", "numbers", "wins", "track record"],
         answer:
           "The headline numbers come from Walmart Global Tech:\n\n" +
           "• $456.2M delivered against a $350M Marketing GMV target\n" +
@@ -569,13 +670,17 @@ window.PROFILE = {
       },
       {
         id: "availability",
-        keywords: ["available", "opportunit", "hiring", "hire", "open to", "notice", "start", "recruit", "headhunt", "role offer", "contract", "freelance", "consulting"],
+        label: "Availability and the roles he's open to",
+        sample: "Is he available?",
+        keywords: ["available", "opportunit", "hiring", "hire", "open to", "notice", "start", "recruit", "headhunt", "role offer", "contract", "freelance", "consulting", "notice period"],
         answer: ({ meta }) =>
           `He's ${meta.availability.toLowerCase()}. Based in ${meta.location}, and works well remotely.\n\nShare the role details and I can tell you how closely it maps to his background.`,
       },
       {
         id: "contact",
-        keywords: ["contact", "email", "reach", "touch", "call", "connect", "linkedin", "message", "get in touch", "speak"],
+        label: "How to get in touch",
+        sample: "How do I get in touch?",
+        keywords: ["contact", "email", "reach", "touch", "call", "connect", "linkedin", "message", "get in touch", "speak", "send a message"],
         answer: ({ meta, socials }) =>
           `Easiest route is email: ${meta.email}\n\n` +
           // Skip the mail identity — the address is already stated above, and
@@ -587,7 +692,9 @@ window.PROFILE = {
       },
       {
         id: "ecommerce",
-        keywords: ["ecommerce", "e-commerce", "retail", "commerce", "order management", "oms", "fulfilment", "fulfillment", "bopis", "saas", "platform", "digital commerce"],
+        label: "Enterprise ecommerce, order management and SaaS",
+        sample: "Tell me about his ecommerce work",
+        keywords: ["ecommerce", "e-commerce", "retail", "commerce", "order management", "oms", "fulfilment", "fulfillment", "bopis", "saas", "platform", "digital commerce", "supply chain"],
         answer:
           "Enterprise commerce is his deepest domain — 20+ years of it. Highlights:\n\n" +
           "• Rebuilt a rules-based Order Management System with predictive inventory availability, Available-to-Promise logic, and BOPIS/BOSFS fulfilment rules\n" +
@@ -597,7 +704,9 @@ window.PROFILE = {
       },
       {
         id: "projects",
-        keywords: ["project", "portfolio", "built", "build", "shipped", "case study", "work sample"],
+        label: "The six projects on this site",
+        sample: "What has he built?",
+        keywords: ["project", "portfolio", "built", "build", "shipped", "case study", "work sample", "what has he built", "things he has built"],
         answer: ({ projects }) =>
           "Six highlights:\n\n" +
           projects.map((p) => `• ${p.title} — ${p.tagline}`).join("\n") +
@@ -605,25 +714,33 @@ window.PROFILE = {
       },
       {
         id: "leadership",
-        keywords: ["lead", "leadership", "mentor", "manage", "management", "senior", "team", "collaborat", "stakeholder", "size", "large", "many people", "direct report"],
+        label: "How large a team he's led, and how",
+        sample: "How large a team has he led?",
+        keywords: ["lead", "leadership", "mentor", "manage", "management", "senior", "team", "collaborat", "stakeholder", "size", "large", "many people", "direct report", "team size", "how many people"],
         answer:
           "He operates at programme level. At Walmart Global Tech he built the agile framework and scrum processes for a 95-engineer organisation spanning eight data programs, and owned the reporting that gave senior leadership visibility and risk management.\n\nEarlier, at Upshot Commerce he grew a two-person operation into a cross-functional team of 34, and he has consistently mentored project managers and product development engineers.",
       },
       {
         id: "remote",
-        keywords: ["remote", "onsite", "on-site", "hybrid", "relocat", "timezone", "location", "where", "based"],
+        label: "Location, remote and hybrid",
+        sample: "Where is he based?",
+        keywords: ["remote", "onsite", "on-site", "hybrid", "relocat", "timezone", "location", "where", "based", "moving", "travel", "commute", "visa", "work permit", "authorised", "authorized"],
         answer: ({ meta }) =>
           `He's based in ${meta.location}. Walmart Global Tech and Mi9 Retail were both fully remote roles; his current work is hybrid in Detroit. Hybrid, remote and on-site arrangements have all worked for him.`,
       },
       {
         id: "why",
-        keywords: ["why", "different", "unique", "stand out", "value", "strength", "should we hire", "fit"],
+        label: "What makes him different",
+        sample: "Why should we hire him?",
+        keywords: ["why", "different", "unique", "stand out", "value", "strength", "should we hire", "fit", "good fit", "best candidate", "standout"],
         answer:
           "Two things stand out.\n\nFirst, he ties programme work to money — $456.2M GMV against a $350M target, a $12.75M capex reduction, 238% YoY revenue growth.\n\nSecond, he builds the operating system, not just the deliverable: the agile framework, the PMO, the custom SDLC, and the reporting that lets leadership see risk early.",
       },
       {
         id: "references",
-        keywords: ["recommendation", "reference", "colleague", "feedback", "say about", "endorsement", "peer", "praise", "testimonial", "reputation", "think of him", "what do others"],
+        label: "What colleagues say about him",
+        sample: "What do colleagues say?",
+        keywords: ["recommendation", "reference", "colleague", "feedback", "say about", "endorsement", "peer", "praise", "testimonial", "reputation", "think of him", "what do others", "what do people say", "manager say"],
         answer: ({ testimonials }) =>
           `${testimonials.length} colleagues have recommended him publicly:\n\n` +
           testimonials
@@ -635,7 +752,9 @@ window.PROFILE = {
       },
       {
         id: "education",
-        keywords: ["education", "degree", "university", "college", "study", "school", "certif", "qualified", "qualification", "credential", "masters", "ms", "ba"],
+        label: "Every degree and certification",
+        sample: "What qualifications does he have?",
+        keywords: ["education", "degree", "university", "college", "study", "school", "certif", "qualified", "qualification", "credential", "masters", "ms", "ba", "pmp", "cspo", "csm", "scrum alliance", "credentialed", "accredited"],
         answer: ({ education, certifications }) =>
           "Education:\n" +
           education.map((e) => `• ${e.focus} — ${e.school} (${e.years})`).join("\n") +
@@ -644,7 +763,9 @@ window.PROFILE = {
       },
       {
         id: "volunteering",
-        keywords: ["volunteer", "volunteering", "community", "datakind", "give back", "social impact", "nonprofit", "non-profit", "charity", "outside work", "pro bono"],
+        label: "His volunteering with DataKind",
+        sample: "Does he volunteer?",
+        keywords: ["volunteer", "volunteering", "community", "datakind", "give back", "social impact", "nonprofit", "non-profit", "charity", "outside work", "pro bono", "social good"],
         answer: ({ volunteering }) =>
           "He volunteers with DataKind, applying data skills to public-interest problems:\n\n" +
           volunteering
@@ -653,20 +774,138 @@ window.PROFILE = {
       },
       {
         id: "data",
-        keywords: ["data science", "analytics", "python", "pandas", "plotly", "panel", "dashboard", "visualisation", "visualization", "sql", "tableau", "power bi", "data storytelling", "statistics", "ml"],
+        label: "Data science, analytics and Python",
+        sample: "What's his data science depth?",
+        keywords: ["data science", "analytics", "python", "pandas", "plotly", "panel", "dashboard", "visualisation", "visualization", "sql", "tableau", "power bi", "data storytelling", "statistics", "ml", "machine learning", "modelling", "modeling"],
         answer:
           "He works in Python day to day — Pandas for wrangling, Plotly and Panel for interactive dashboards. His Google Advanced Data Analytics and IBM Data Science certifications cover regression and classification, clustering (k-means, DBSCAN), Random Forest, Gradient Boosting, Naive Bayes, cross-validation, hyperparameter tuning and bootstrapping.\n\nApplied, that shows up in the DataKind Florida Housing dashboard he built as a volunteer, and in the reporting he owned across eight data programs at Walmart Global Tech.",
       },
       {
         id: "process",
-        keywords: ["process", "methodolog", "agile", "how does he work", "approach", "way of working", "scrum", "kanban", "lean"],
+        label: "How he runs projects day to day",
+        sample: "How does he run a programme?",
+        keywords: ["process", "methodolog", "agile", "how does he work", "approach", "way of working", "scrum", "kanban", "lean", "management style", "working style", "run a programme", "run a program", "how does he run", "delivery cadence", "governance"],
         answer:
           "Agile and Scrum form the base, with Lean where it fits. He establishes PMOs and authors custom SDLC frameworks rather than importing a template, works to PMI standards for scope, budget and risk, and applies Outcome Driven Innovation and behaviour-driven development to keep delivery tied to customer outcomes.",
       },
+
+      /* --- The questions that used to fall through -------------------------
+         Everything below covers material that was already on the page (the
+         IntelliMake Journal, the education list, the current roles) but had no
+         knowledge-base entry, so a direct question about it produced a
+         blanket "I don't have that detail" instead of an answer. */
+      {
+        id: "study",
+        label: "What he's studying at Wayne State",
+        sample: "What's he studying at Wayne State?",
+        keywords: [
+          "wayne state", "wayne state university", "wsu", "university", "masters", "ms", "msc", "degree", "study", "studying", "student", "school", "college", "class", "course", "coursework", "curriculum", "capstone", "ie6010", "research", "thesis", "industrial engineering", "industrial ai", "graduate", "education",
+        ],
+        answer: ({ education, journal }) =>
+          "He's finishing an M.S. in Artificial Intelligence with an Industrial AI major at Wayne State University — in his final year.\n\n" +
+          (journal?.lede ? journal.lede + "\n\n" : "") +
+          "Beyond the current degree, his full education list is:\n" +
+          education.map((e) => `• ${e.focus} — ${e.school} (${e.years})`).join("\n") +
+          "\n\nAsk about the IntelliMake research and I'll go into what he's actually building.",
+      },
+      {
+        id: "journal",
+        label: "The IntelliMake Journal (his MS research notes)",
+        sample: "What's in the IntelliMake Journal?",
+        // Decisive: naming the section should answer about the section, even
+        // though the alias expansion for "intellimake" floods the research
+        // entry with matches at the same time.
+        strong: ["intellimake journal", "the journal", "his journal", "journal"],
+        keywords: [
+          "intellimake journal", "journal", "blog", "writing", "writes", "notes", "articles", "posts", "updates", "diary", "log", "latest news", "what is he working on", "what is he writing",
+        ],
+        also: ["anything new", "what has he published"],
+        answer: ({ journal }) =>
+          // Lead with what the Journal is *not*: the section was renamed to
+          // avoid exactly this confusion, so the agent shouldn't reintroduce it.
+          [
+            `The ${journal.name} isn't a personal diary — it's where he writes up the IntelliMake work as it happens at Wayne State.`,
+            ...(journal.entries || []).map((e) => `**${e.title}** (${e.date}, ${e.tag})\n${e.body[0]}`),
+            journal.lede || "",
+          ].filter(Boolean).join("\n\n"),
+      },
+      {
+        id: "research",
+        label: "The IntelliMake research (Exchange, IntelliAware)",
+        sample: "What is he building at IntelliMake?",
+        keywords: [
+          "intellimake", "intelliaware", "manufacturing intelligence exchange", "the exchange", "autonomous manufacturing", "knowledge object", "agents", "agent layer", "computer vision", "vision group", "research project", "capstone project", "what is he building",
+        ],
+        answer: ({ journal }) => {
+          const lede = journal?.lede ? journal.lede + "\n\n" : "";
+          // Bold only — the formatter understands ** and `code`, not underscores.
+          const entries = (journal?.entries || [])
+            .map((e) => `**${e.title}** (${e.date})\n${e.body[0]}`)
+            .join("\n\n");
+          const link = (journal?.entries || []).map((e) => e.link).find(Boolean);
+          return lede + entries + (link ? `\n\nMore at ${link.url}` : "");
+        },
+      },
+      {
+        id: "now",
+        label: "What he's doing right now",
+        sample: "What does he do now?",
+        keywords: [
+          "now", "currently", "current", "right now", "these days", "current role", "current job", "day to day", "great lakes", "great lakes water authority", "glwa", "application analyst", "another place", "consultancy", "consulting practice",
+        ],
+        answer: ({ experience }) => {
+          const current = experience.filter((e) => /present|current|now/i.test(e.end));
+          if (!current.length) return "He's between roles — ask about his availability.";
+          return "At the moment he's doing two things:\n\n" +
+            current.map((e) => `• ${e.role} at ${e.company} (${e.start} – present) — ${e.summary}`).join("\n\n") +
+            "\n\nAlongside both, he's in the final year of his M.S. at Wayne State, working on IntelliMake.";
+        },
+      },
+      {
+        id: "hands-on",
+        label: "How hands-on and technical he is",
+        sample: "Is he hands-on technically?",
+        keywords: ["hands-on", "hands on", "technical", "can he code", "does he code", "coding", "developer", "engineer himself", "write code", "practical", "build things", "implement"],
+        answer:
+          "He's a product and programme leader who stays close to the build rather than a full-time engineer. Concretely: he wrote and shipped the Python/Panel/Plotly dashboard for the DataKind Florida housing challenge, he authored the SDLC framework and governance for Terraform/AWS CloudFormation delivery, he owned architecture and scalability decisions on the order-orchestration platform, and he's currently building a computer-vision and agent-coordination research project at Wayne State.\n\nSo he can read, question and prototype — which is what lets him review engineering work credibly without pretending to be the engineer.",
+      },
+      {
+        id: "military",
+        label: "Military service and West Point",
+        sample: "Did he serve in the military?",
+        keywords: ["military", "army", "us army", "serviceman", "served", "service", "west point", "usma", "veteran", "pershing", "fort jackson", "fort monmouth", "redstone"],
+        answer: ({ experience, education }) => {
+          const army = experience.find((e) => /army|military/i.test(e.company));
+          const wp = (education || []).find((e) => /west point/i.test(e.school));
+          return (army
+            ? `He served in the US Army from ${army.start} to ${army.end}. ${army.summary}\n\n` +
+              (army.achievements || []).map((a) => `• ${a}`).join("\n")
+            : "He served in the US Army from 1985 to 1990.") +
+            (wp ? `\n\nHe also attended ${wp.school} for ${wp.focus} (${wp.years}).` : "");
+        },
+      },
+      {
+        id: "next-steps",
+        label: "How to move this forward (CV, interview, intro call)",
+        sample: "How do we move forward?",
+        keywords: ["next steps", "move forward", "move this forward", "interview", "talk to him", "speak to him", "intro", "introduction", "screening", "process", "schedule", "meeting", "download", "send his cv", "get his cv", "get his resume"],
+        answer: ({ meta }) =>
+          `Simplest is email — ${meta.email} — with the role or problem in a line or two and he'll reply. He's ${meta.availability.toLowerCase()}.`,
+      },
+      {
+        id: "compensation",
+        label: "Compensation and rate",
+        sample: "What's he looking for, comp-wise?",
+        keywords: ["compensation", "salary", "rate", "day rate", "pay", "package", "remuneration", "money", "expectations", "how much", "cost", "comp-wise", "comp wise", "pay expectations"],
+        answer: ({ meta }) =>
+          `Not something he publishes here — it depends on the scope and the contract type. Send the role details to ${meta.email} and he'll be straightforward about it.`,
+      },
     ],
 
-    // Said when nothing matches. Keeps the agent feeling intentional.
+    // Said when nothing matches. agent.js appends the list of topics it *can*
+    // cover, generated from the `label` on each entry above, so a miss reads as
+    // a scoped answer rather than a wall.
     fallback:
-      "I don't have that detail on file — I only speak to Derek's professional background. Try asking about his experience, tech stack, projects, or how to get in touch.",
+      "That one isn't in my notes on Derek — I'd rather tell you that than guess.",
   },
 };
